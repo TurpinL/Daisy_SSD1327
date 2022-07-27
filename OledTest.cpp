@@ -47,15 +47,14 @@ DaisyPatchSM patch;
 
 #define SSD1327_BUFFERSIZE (SSD1327_LCD_HEIGHT * SSD1327_LCD_WIDTH / 2)
 
-uint8_t _buffer[SSD1327_BUFFERSIZE + 1] = { 0x40 };
-uint8_t *buffer = _buffer + 1;
-uint8_t _drawBuffer[SSD1327_BUFFERSIZE + 1] = { 0x40 };
-uint8_t *drawBuffer = _drawBuffer + 1;
+uint8_t buffer[SSD1327_BUFFERSIZE];
 uint8_t dirty_window_min_x = UINT8_MAX;
 uint8_t dirty_window_max_x = 0;
 uint8_t dirty_window_min_y = UINT8_MAX;
 uint8_t dirty_window_max_y = 0;
 
+SpiHandle spi;
+dsy_gpio dc_pin;
 I2CHandle i2c;
 
 uint8_t init_128x128[] = {
@@ -109,30 +108,6 @@ void SSD1327_Clear (uint8_t colour)
     dirty_window_max_y = SSD1327_LCD_HEIGHT - 1;
 }
 
-void fillStuff() {
-    for (int y = 0; y < SSD1327_LCD_HEIGHT; y++) {
-        for (int x = 0; x < SSD1327_LCD_HALF_WIDTH; x++) {
-            u_int8_t colour = (y / 8) % (SSD1327_WHITE + 1);
-
-            buffer[y * SSD1327_LCD_HALF_WIDTH + x] = (colour << 4 | colour);
-        }
-    }
-
-    // for (int i = 0; i < SSD1327_BUFFERSIZE; i++) {
-    //     u_int8_t colour = (seed + i) % (SSD1327_WHITE + 1);
-
-    //     buffer[i] = (colour << 4 | colour);
-    // }
-}
-
-void square(u_int8_t colour) {
-    for (int y = 32; y < SSD1327_LCD_HEIGHT - 32; y++) {
-        for (int x = 16; x < SSD1327_LCD_HALF_WIDTH - 16; x++) {
-            buffer[y * SSD1327_LCD_HALF_WIDTH + x] = (colour << 4 | colour);
-        }
-    }
-}
-
 void setPixel(uint8_t x, uint8_t y, uint8_t colour) {
     // TODO: Debug for out of bounds, etc
     uint8_t *buf_target = &buffer[x/2 + (y*SSD1327_LCD_HALF_WIDTH)];
@@ -170,22 +145,23 @@ void SSD1327_Display (void)
         SSD1327_SETCOLUMN, min_x_byte, max_x_byte
     };
 
-    i2c.TransmitBlocking(SSD1327_I2C_ADDRESS, set_draw_area, sizeof(set_draw_area), 100000);
+    // uint8_t set_draw_area[] = {  
+    //     SSD1327_SETCOLUMN, 0x00, 0x3F,
+    //     SSD1327_SETROW,    0x00, 0x7F,
+    //     SSD1327_SETCOLUMN, 0x00, 0x3F,
+    // };
+
+    dsy_gpio_write(&dc_pin, false);
+    spi.BlockingTransmit(set_draw_area, sizeof(set_draw_area), 100000);
 
     size_t bytes_per_row = 1 + max_x_byte - min_x_byte;
     size_t total_bytes = bytes_per_row * (1 + dirty_window_max_y - dirty_window_min_y);
     size_t write_head = 0;
+
+    dsy_gpio_write(&dc_pin, true);
     for (uint8_t y = dirty_window_min_y; y <= dirty_window_max_y; y++) {
-        memcpy(
-            drawBuffer + write_head,
-            buffer + min_x_byte + (y*SSD1327_LCD_HALF_WIDTH),
-            bytes_per_row
-        );
-
-        write_head += bytes_per_row;
+        spi.BlockingTransmit(buffer + min_x_byte + (y*SSD1327_LCD_HALF_WIDTH), bytes_per_row, 100000);
     }
-
-    i2c.TransmitBlocking(SSD1327_I2C_ADDRESS, _drawBuffer, total_bytes + 1, 100000);
 
     // Reset dirty window
     dirty_window_min_x = UINT8_MAX;
@@ -215,22 +191,35 @@ int main(void)
     patch.Init();
     patch.StartLog();
 
-    // setup the configuration
-    I2CHandle::Config i2c_conf;
-    i2c_conf.periph = I2CHandle::Config::Peripheral::I2C_1;
-    i2c_conf.speed  = I2CHandle::Config::Speed::I2C_1MHZ;
-    i2c_conf.mode   = I2CHandle::Config::Mode::I2C_MASTER;
-    i2c_conf.pin_config.scl  = {DSY_GPIOB, 8};
-    i2c_conf.pin_config.sda  = {DSY_GPIOB, 9};
-    // initialise the peripheral
-    i2c.Init(i2c_conf);
+    dc_pin.mode = DSY_GPIO_MODE_OUTPUT_PP;
+    dc_pin.pull = DSY_GPIO_NOPULL;
+    dc_pin.pin  = patch.B7;
+    dsy_gpio_init(&dc_pin);
 
-    i2c.TransmitBlocking(SSD1327_I2C_ADDRESS, init_128x128, sizeof(init_128x128), 100000);
+    // setup the configuration
+    SpiHandle::Config spi_conf;
+    spi_conf.periph = SpiHandle::Config::Peripheral::SPI_2;
+    spi_conf.mode = SpiHandle::Config::Mode::MASTER;
+    spi_conf.direction = SpiHandle::Config::Direction::TWO_LINES;
+    spi_conf.clock_polarity = SpiHandle::Config::ClockPolarity::HIGH;
+    spi_conf.clock_phase = SpiHandle::Config::ClockPhase::TWO_EDGE;
+    spi_conf.nss = SpiHandle::Config::NSS::HARD_OUTPUT; // TODO: What's this? 
+    spi_conf.pin_config.sclk = patch.D10;
+    spi_conf.pin_config.mosi = patch.D9;
+    spi_conf.pin_config.miso = patch.D8;
+    spi_conf.pin_config.nss = patch.D1;
+
+    // initialise the peripheral
+    SpiHandle::Result result = spi.Init(spi_conf);
+
+    dsy_gpio_write(&dc_pin, false);
+    spi.BlockingTransmit(init_128x128, sizeof(init_128x128), 1000);
 
     SSD1327_Clear(SSD1327_BLACK);
 
     int y = 0;
 
+    // patch.audio.SetBlockSize(4);
     patch.StartAudio(AudioCallback);
 
     while(1) {
