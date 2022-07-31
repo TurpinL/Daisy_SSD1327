@@ -2,7 +2,7 @@
 TARGET = OledTest
 
 # Sources
-CPP_SOURCES = OledTest.cpp
+CPP_SOURCES = OledTest.cpp Daisy_SSD1327.cpp
 
 # Library Locations
 LIBDAISY_DIR = ../../libDaisy/
