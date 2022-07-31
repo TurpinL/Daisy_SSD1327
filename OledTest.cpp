@@ -47,7 +47,7 @@ DaisyPatchSM patch;
 
 #define SSD1327_BUFFERSIZE (SSD1327_LCD_HEIGHT * SSD1327_LCD_WIDTH / 2)
 
-uint8_t buffer[SSD1327_BUFFERSIZE];
+uint8_t DMA_BUFFER_MEM_SECTION buffer[SSD1327_BUFFERSIZE];
 uint8_t dirty_window_min_x = UINT8_MAX;
 uint8_t dirty_window_max_x = 0;
 uint8_t dirty_window_min_y = UINT8_MAX;
@@ -122,10 +122,47 @@ void setPixel(uint8_t x, uint8_t y, uint8_t colour) {
         uint8_t original_right_pixel = *buf_target & 0x0F;
         *buf_target = new_left_pixel | original_right_pixel;
     } else { // odd, right pixel
-        uint8_t original_left_pixel = *buf_target & 0xF0;
         uint8_t new_right_pixel = colour & 0x0F;
+        uint8_t original_left_pixel = *buf_target & 0xF0;
         *buf_target = new_right_pixel | original_left_pixel;
     }
+}
+
+uint8_t DMA_BUFFER_MEM_SECTION set_draw_area[] = {  
+    SSD1327_SETROW,    0x00, 0x7F,
+    SSD1327_SETCOLUMN, 0x00, 0x3F,
+};
+
+struct RenderContext {
+    uint8_t min_x_byte;
+    uint8_t y;
+    uint8_t max_y;
+    uint8_t bytes_per_row;
+};
+
+RenderContext render_context;
+
+bool isRendering = false;
+
+void display(void *uncastContext, SpiHandle::Result result) {
+    // TODO: Off by one?
+    if (render_context.y > render_context.max_y) {
+        isRendering = false;
+        return;
+    }
+
+    dsy_gpio_write(&dc_pin, true);
+
+    uint8_t *data_start = buffer + render_context.min_x_byte + (render_context.y*SSD1327_LCD_HALF_WIDTH);
+    render_context.y++;
+
+    spi.DmaTransmit(
+        data_start, 
+        render_context.bytes_per_row, 
+        NULL, 
+        display,
+        NULL
+    );
 }
 
 void SSD1327_Display (void)
@@ -135,43 +172,35 @@ void SSD1327_Display (void)
         return;
     }
 
+    isRendering = true;
+
     uint8_t min_x_byte = dirty_window_min_x / 2;
     uint8_t max_x_byte = dirty_window_max_x / 2;
-
-    // TODO: Why does it ignore the first command in this list? Does it think it's still data?
-    uint8_t set_draw_area[] = {  
-        SSD1327_SETCOLUMN, min_x_byte, max_x_byte,
-        SSD1327_SETROW,    dirty_window_min_y, dirty_window_max_y,
-        SSD1327_SETCOLUMN, min_x_byte, max_x_byte
-    };
-
-    // uint8_t set_draw_area[] = {  
-    //     SSD1327_SETCOLUMN, 0x00, 0x3F,
-    //     SSD1327_SETROW,    0x00, 0x7F,
-    //     SSD1327_SETCOLUMN, 0x00, 0x3F,
-    // };
-
-    dsy_gpio_write(&dc_pin, false);
-    spi.BlockingTransmit(set_draw_area, sizeof(set_draw_area), 100000);
-
     size_t bytes_per_row = 1 + max_x_byte - min_x_byte;
-    size_t total_bytes = bytes_per_row * (1 + dirty_window_max_y - dirty_window_min_y);
-    size_t write_head = 0;
 
-    dsy_gpio_write(&dc_pin, true);
-    for (uint8_t y = dirty_window_min_y; y <= dirty_window_max_y; y++) {
-        spi.BlockingTransmit(buffer + min_x_byte + (y*SSD1327_LCD_HALF_WIDTH), bytes_per_row, 100000);
-    }
+    set_draw_area[1] = dirty_window_min_y;
+    set_draw_area[2] = dirty_window_max_y;
+    set_draw_area[4] = min_x_byte;
+    set_draw_area[5] = max_x_byte;
+
+    render_context.min_x_byte = min_x_byte;
+    render_context.y = dirty_window_min_y;
+    render_context.max_y = dirty_window_max_y;
+    render_context.bytes_per_row = bytes_per_row;
 
     // Reset dirty window
     dirty_window_min_x = UINT8_MAX;
     dirty_window_max_x = 0;
     dirty_window_min_y = UINT8_MAX;
     dirty_window_max_y = 0;
+
+    dsy_gpio_write(&dc_pin, false);
+    spi.DmaTransmit(set_draw_area, sizeof(set_draw_area), NULL, display, NULL);
 }
 
 float minOutL = 0.f;
 float maxOutL = 0.f;
+int y = 0;
 
 void AudioCallback(AudioHandle::InputBuffer  in,
                    AudioHandle::OutputBuffer out,
@@ -183,8 +212,23 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     {
         minOutL = std::min(in[0][i], minOutL);
         maxOutL = std::max(in[0][i], maxOutL);
+
+        out[0][i] = in[0][i];
     }
+
+    int minX = minOutL * 10 * 64 + 64; 
+    int maxX = maxOutL * 10 * 64 + 64; 
+
+    for (int x = 0; x < SSD1327_LCD_WIDTH; x++) {
+        uint8_t new_colour = (x >= minX && x <= maxX) ? 0xF : 0x0;
+
+        setPixel(x, y, new_colour);
+    }
+
+    y = (y + 1) % (SSD1327_LCD_HEIGHT);
 }
+
+uint32_t last_render_millis = 0;
 
 int main(void)
 {
@@ -217,26 +261,12 @@ int main(void)
 
     SSD1327_Clear(SSD1327_BLACK);
 
-    int y = 0;
-
-    // patch.audio.SetBlockSize(4);
     patch.StartAudio(AudioCallback);
 
     while(1) {
-        int minX = minOutL * 10 * 64 + 64; 
-        int maxX = maxOutL * 10 * 64 + 64; 
-
-        // patch.PrintLine("outL: (%d, %d) (%d, %d) " FLT_FMT3, minX, maxX, FLT_VAR3(minOutL));
-
-        for (int x = 0; x < SSD1327_LCD_WIDTH; x++) {
-            uint8_t new_colour = (x >= minX && x <= maxX) ? 0xF : 0x0;
-
-            setPixel(x, y, new_colour);
+        if (System::GetNow() - last_render_millis > 8 && !isRendering) {
+            last_render_millis = System::GetNow();
+            SSD1327_Display();
         }
-
-        SSD1327_Display();
-
-        if (y == 128) break;
-        y = (y + 1) % SSD1327_LCD_HEIGHT;
     }
 } 
