@@ -1,8 +1,6 @@
 #include "Daisy_SSD1327.h"
 
-RenderContext _render_context;
-uint8_t DMA_BUFFER_MEM_SECTION _buffer[SSD1327_BUFFERSIZE];
-uint8_t DMA_BUFFER_MEM_SECTION _set_draw_area[6];
+DaisyPatchSM _patch;
 
 uint8_t init_128x128[] = {
     // Init sequence for 128x32 OLED module
@@ -45,12 +43,17 @@ Daisy_SSD1327::Daisy_SSD1327() {
 
 }
 
-void Daisy_SSD1327::init(SpiHandle spi_handle, dsy_gpio dc_pin) {
+void Daisy_SSD1327::init(SpiHandle spi_handle, dsy_gpio dc_pin, uint8_t *buffer, DaisyPatchSM patch) {
     this->dc_pin = dc_pin;
     this->spi_handle = spi_handle;
 
+    _draw_area_command_buffer = buffer;
+    _display_buffer = buffer + SSD1327_SET_DRAW_AREA_BUFFER_SIZE;
+
+    _patch = patch;
     _render_context.dc_pin = dc_pin;
     _render_context.spi_handle = spi_handle;
+    _render_context.display_buffer = _display_buffer;
 
     dsy_gpio_write(&dc_pin, false);
     spi_handle.BlockingTransmit(init_128x128, sizeof(init_128x128), 1000);
@@ -59,7 +62,7 @@ void Daisy_SSD1327::init(SpiHandle spi_handle, dsy_gpio dc_pin) {
 void Daisy_SSD1327::clear(uint8_t colour) {
     if (colour > SSD1327_WHITE) colour = SSD1327_WHITE;
 
-    memset (_buffer, (colour << 4 | colour), SSD1327_BUFFERSIZE);
+    memset (_display_buffer, (colour << 4 | colour), SSD1327_DISPLAY_BUFFER_SIZE);
 
     dirty_window_min_x = 0;
     dirty_window_max_x = SSD1327_LCD_WIDTH - 1;
@@ -69,7 +72,7 @@ void Daisy_SSD1327::clear(uint8_t colour) {
 
 void Daisy_SSD1327::setPixel(uint8_t x, uint8_t y, uint8_t colour) {
     // TODO: Debug print for out of bounds
-    uint8_t *buf_target = &_buffer[x/2 + (y*SSD1327_LCD_HALF_WIDTH)];
+    uint8_t *buf_target = &_display_buffer[x/2 + (y*SSD1327_LCD_HALF_WIDTH)];
     
     dirty_window_min_x = std::min(dirty_window_min_x, x);
     dirty_window_max_x = std::max(dirty_window_max_x, x);
@@ -88,28 +91,29 @@ void Daisy_SSD1327::setPixel(uint8_t x, uint8_t y, uint8_t colour) {
 }
 
 void Daisy_SSD1327::_display(void *uncastContext, SpiHandle::Result result) {
-    if (_render_context.y > _render_context.max_y) {
-        _render_context.isRendering = false;
+    RenderContext *context = static_cast<RenderContext*>(uncastContext);
+
+    if (context->y > context->max_y) {
+        context->isRendering = false;
         return;
     }
 
-    dsy_gpio_write(&_render_context.dc_pin, true);
+    dsy_gpio_write(&context->dc_pin, true);
 
-    uint8_t *data_start = _buffer + _render_context.min_x_byte + (_render_context.y*SSD1327_LCD_HALF_WIDTH);
-    _render_context.y++;
+    uint8_t *data_start = context->display_buffer + context->min_x_byte + (context->y*SSD1327_LCD_HALF_WIDTH);
+    context->y++;
 
-    _render_context.spi_handle.DmaTransmit(
+    context->spi_handle.DmaTransmit(
         data_start, 
-        _render_context.bytes_per_row, 
+        context->bytes_per_row, 
         NULL, 
         _display,
-        NULL
+        uncastContext
     );
 }
 
 void Daisy_SSD1327::display() {
     if (dirty_window_min_x > dirty_window_max_x) {
-        // patch.PrintLine("Nothing to draw");
         return;
     }
 
@@ -121,7 +125,7 @@ void Daisy_SSD1327::display() {
         SSD1327_SETROW,    dirty_window_min_y, dirty_window_max_y,
         SSD1327_SETCOLUMN, min_x_byte, max_x_byte,
     };
-    memcpy(_set_draw_area, tmp, sizeof(tmp));
+    memcpy(_draw_area_command_buffer, tmp, sizeof(tmp));
 
     _render_context.min_x_byte = min_x_byte;
     _render_context.y = dirty_window_min_y;
@@ -129,14 +133,20 @@ void Daisy_SSD1327::display() {
     _render_context.bytes_per_row = bytes_per_row;
     _render_context.isRendering = true;
 
+    dsy_gpio_write(&dc_pin, false);
+    spi_handle.DmaTransmit(
+        _draw_area_command_buffer,
+        SSD1327_SET_DRAW_AREA_BUFFER_SIZE,
+        NULL, 
+        _display, 
+        &_render_context
+    );
+
     // Reset dirty window
     dirty_window_min_x = UINT8_MAX;
     dirty_window_max_x = 0;
     dirty_window_min_y = UINT8_MAX;
     dirty_window_max_y = 0;
-
-    dsy_gpio_write(&dc_pin, false);
-    spi_handle.DmaTransmit(_set_draw_area, sizeof(_set_draw_area), NULL, _display, NULL);
 }
 
 bool Daisy_SSD1327::isRendering() {

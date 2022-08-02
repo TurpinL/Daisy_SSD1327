@@ -3,6 +3,7 @@
 
 #include "daisy_patch_sm.h"
 using namespace daisy;
+using namespace patch_sm;
 
 #define SSD1327_BLACK 0x0
 #define SSD1327_WHITE 0xF
@@ -42,7 +43,11 @@ using namespace daisy;
 #define SSD1327_LCD_HALF_WIDTH 64
 #define SSD1327_LCD_HEIGHT 128
 
-#define SSD1327_BUFFERSIZE (SSD1327_LCD_HEIGHT * SSD1327_LCD_WIDTH / 2)
+#define SSD1327_DISPLAY_BUFFER_SIZE (SSD1327_LCD_HEIGHT * SSD1327_LCD_WIDTH / 2)
+#define SSD1327_SET_DRAW_AREA_BUFFER_SIZE 6
+
+// Includes 6 bytes for the column and row selection commands
+#define SSD1327_REQUIRED_DMA_BUFFER_SIZE (SSD1327_DISPLAY_BUFFER_SIZE + SSD1327_SET_DRAW_AREA_BUFFER_SIZE)
 
 struct RenderContext {
     uint8_t min_x_byte;
@@ -52,6 +57,7 @@ struct RenderContext {
     bool isRendering;
     dsy_gpio dc_pin;
     SpiHandle spi_handle;
+    uint8_t *display_buffer;
 };
 
 class Daisy_SSD1327 {
@@ -59,7 +65,7 @@ class Daisy_SSD1327 {
         Daisy_SSD1327();
         // TODO: Destructor?
 
-        void init(SpiHandle spi_handle, dsy_gpio dc_pin);
+        void init(SpiHandle spi_handle, dsy_gpio dc_pin, uint8_t *buffer, DaisyPatchSM patch);
         void clear(uint8_t colour);
         void setPixel(uint8_t x, uint8_t y, uint8_t colour);
         void display();
@@ -76,6 +82,10 @@ class Daisy_SSD1327 {
 
     private:
         static void _display(void *uncastContext, SpiHandle::Result result);
+    
+        uint8_t *_draw_area_command_buffer;
+        uint8_t *_display_buffer;
+        RenderContext _render_context;
 };
 
 #endif

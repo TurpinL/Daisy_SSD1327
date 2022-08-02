@@ -11,6 +11,8 @@ DaisyPatchSM patch;
 SpiHandle spi;
 dsy_gpio dc_pin;
 I2CHandle i2c;
+
+uint8_t DMA_BUFFER_MEM_SECTION oled_buffer[SSD1327_REQUIRED_DMA_BUFFER_SIZE];
 Daisy_SSD1327 oled;
 
 float minOutL = 0.f;
@@ -69,7 +71,7 @@ int main(void)
     spi_conf.pin_config.nss = patch.D1;
     spi.Init(spi_conf);
 
-    oled.init(spi, dc_pin);
+    oled.init(spi, dc_pin, oled_buffer, patch);
     oled.clear(SSD1327_BLACK);
 
     patch.StartAudio(AudioCallback);
