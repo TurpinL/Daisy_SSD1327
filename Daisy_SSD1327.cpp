@@ -43,8 +43,12 @@ Daisy_SSD1327::Daisy_SSD1327() {
 
 }
 
-void Daisy_SSD1327::init(SpiHandle spi_handle, dsy_gpio dc_pin, uint8_t *buffer, DaisyPatchSM patch) {
-    this->dc_pin = dc_pin;
+void Daisy_SSD1327::init(SpiHandle spi_handle, dsy_gpio_pin dc_pin_id, uint8_t *buffer, DaisyPatchSM patch) {
+    dc_pin.mode = DSY_GPIO_MODE_OUTPUT_PP;
+    dc_pin.pull = DSY_GPIO_NOPULL;
+    dc_pin.pin  = dc_pin_id;
+    dsy_gpio_init(&dc_pin);
+
     this->spi_handle = spi_handle;
 
     _draw_area_command_buffer = buffer;
@@ -57,6 +61,24 @@ void Daisy_SSD1327::init(SpiHandle spi_handle, dsy_gpio dc_pin, uint8_t *buffer,
 
     dsy_gpio_write(&dc_pin, false);
     spi_handle.BlockingTransmit(init_128x128, sizeof(init_128x128), 1000);
+}
+
+SpiHandle::Config Daisy_SSD1327::getSpiConfig(dsy_gpio_pin sclk, dsy_gpio_pin mosi, dsy_gpio_pin miso, dsy_gpio_pin nss) {
+    // TODO: Is this a memory leak?
+    SpiHandle::Config spi_conf;
+
+    spi_conf.periph = SpiHandle::Config::Peripheral::SPI_2;
+    spi_conf.mode = SpiHandle::Config::Mode::MASTER;
+    spi_conf.direction = SpiHandle::Config::Direction::TWO_LINES;
+    spi_conf.clock_polarity = SpiHandle::Config::ClockPolarity::HIGH;
+    spi_conf.clock_phase = SpiHandle::Config::ClockPhase::TWO_EDGE;
+    spi_conf.nss = SpiHandle::Config::NSS::HARD_OUTPUT;
+    spi_conf.pin_config.sclk = sclk;
+    spi_conf.pin_config.mosi = mosi;
+    spi_conf.pin_config.miso = miso;
+    spi_conf.pin_config.nss = nss;
+
+    return spi_conf;
 }
 
 void Daisy_SSD1327::clear(uint8_t colour) {

@@ -52,26 +52,16 @@ int main(void)
     patch.Init();
     patch.StartLog();
 
-    dc_pin.mode = DSY_GPIO_MODE_OUTPUT_PP;
-    dc_pin.pull = DSY_GPIO_NOPULL;
-    dc_pin.pin  = patch.A9;
-    dsy_gpio_init(&dc_pin);
+    spi.Init(
+        oled.getSpiConfig(
+            patch.D10, /* sclk */
+            patch.D9, /* mosi */
+            patch.D8, /* miso */
+            patch.D1 /* nss */
+        )
+    );
 
-    // setup the configuration
-    SpiHandle::Config spi_conf;
-    spi_conf.periph = SpiHandle::Config::Peripheral::SPI_2;
-    spi_conf.mode = SpiHandle::Config::Mode::MASTER;
-    spi_conf.direction = SpiHandle::Config::Direction::TWO_LINES;
-    spi_conf.clock_polarity = SpiHandle::Config::ClockPolarity::HIGH;
-    spi_conf.clock_phase = SpiHandle::Config::ClockPhase::TWO_EDGE;
-    spi_conf.nss = SpiHandle::Config::NSS::HARD_OUTPUT;
-    spi_conf.pin_config.sclk = patch.D10;
-    spi_conf.pin_config.mosi = patch.D9;
-    spi_conf.pin_config.miso = patch.D8;
-    spi_conf.pin_config.nss = patch.D1;
-    spi.Init(spi_conf);
-
-    oled.init(spi, dc_pin, oled_buffer, patch);
+    oled.init(spi, patch.A9, oled_buffer, patch);
     oled.clear(SSD1327_BLACK);
 
     patch.StartAudio(AudioCallback);
