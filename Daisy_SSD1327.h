@@ -63,7 +63,9 @@ struct RenderContext {
 class Daisy_SSD1327 {
     public: 
         Daisy_SSD1327();
-        // TODO: Destructor?
+
+        static const uint8_t width = SSD1327_LCD_WIDTH;
+        static const uint8_t height = SSD1327_LCD_HEIGHT;
 
         void init(SpiHandle spi_handle, dsy_gpio_pin dc_pin_id, uint8_t *buffer, DaisyPatchSM patch);
         void clear(uint8_t colour);
