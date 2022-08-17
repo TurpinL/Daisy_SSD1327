@@ -61,6 +61,10 @@ void Daisy_SSD1327::init(SpiHandle spi_handle, dsy_gpio_pin dc_pin_id, uint8_t *
 
     dsy_gpio_write(&dc_pin, false);
     spi_handle.BlockingTransmit(init_128x128, sizeof(init_128x128), 1000);
+
+    System::Delay(100);
+    uint8_t displayCmd[1] = {SSD1327_DISPLAYON};
+    spi_handle.BlockingTransmit(displayCmd, 1, 1000);
 }
 
 SpiHandle::Config Daisy_SSD1327::getSpiConfig(dsy_gpio_pin sclk, dsy_gpio_pin mosi, dsy_gpio_pin miso, dsy_gpio_pin nss) {
