@@ -18,9 +18,9 @@ uint8_t init_128x128[] = {
     0x7F, // 0xA8, 0x7F (1/64)
     SSD1327_PHASELEN,
     0x11, // 0xB1, 0x11
-    //   SSD1327_GRAYTABLE,
-    //   0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
-    //   0x07, 0x08, 0x10, 0x18, 0x20, 0x2f, 0x38, 0x3f,
+    SSD1327_GRAYTABLE,
+    0x03, 0x06, 0x08, 0x0A, 0x0C, 0x0E, 0x10,
+    0x012, 0x15, 0x17, 0x1A, 0x20, 0x2A, 0x36, 0x3f,
     SSD1327_DCLK,
     0x00, // 0xb3, 0x00 (100hz)
     SSD1327_REGULATOR,
@@ -65,6 +65,9 @@ void Daisy_SSD1327::init(SpiHandle spi_handle, dsy_gpio_pin dc_pin_id, uint8_t *
     System::Delay(100);
     uint8_t displayCmd[1] = {SSD1327_DISPLAYON};
     spi_handle.BlockingTransmit(displayCmd, 1, 1000);
+
+    uint8_t setContrastCmds[2] = {SSD1327_SETCONTRAST, 0x4F};
+    spi_handle.BlockingTransmit(setContrastCmds, 2, 1000);
 }
 
 SpiHandle::Config Daisy_SSD1327::getSpiConfig(dsy_gpio_pin sclk, dsy_gpio_pin mosi, dsy_gpio_pin miso, dsy_gpio_pin nss) {
