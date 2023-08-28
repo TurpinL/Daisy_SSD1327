@@ -70,6 +70,7 @@ class Daisy_SSD1327 {
         void init(SpiHandle spi_handle, dsy_gpio_pin dc_pin_id, uint8_t *buffer, DaisyPatchSM patch);
         void clear(uint8_t colour);
         void setPixel(uint8_t x, uint8_t y, uint8_t colour);
+        void lightenPixel(uint8_t x, uint8_t y, uint8_t colour);
         void display();
 
         SpiHandle::Config getSpiConfig(dsy_gpio_pin sclk, dsy_gpio_pin mosi, dsy_gpio_pin miso, dsy_gpio_pin nss);

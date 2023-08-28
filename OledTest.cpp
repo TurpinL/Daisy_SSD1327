@@ -45,7 +45,7 @@ void AudioCallback(AudioHandle::InputBuffer  in,
     y = (y + 1) % (SSD1327_LCD_HEIGHT);
 }
 
-uint32_t last_render_millis = 0;
+uint32_t last_oled_update_millis = 0;
 
 int main(void)
 {
@@ -67,8 +67,8 @@ int main(void)
     patch.StartAudio(AudioCallback);
 
     while(1) {
-        if (System::GetNow() - last_render_millis > 8 && !oled.isRendering()) {
-            last_render_millis = System::GetNow();
+        if (System::GetNow() - last_oled_update_millis > 8 && !oled.isRendering()) {
+            last_oled_update_millis = System::GetNow();
             oled.display();
         }
     }

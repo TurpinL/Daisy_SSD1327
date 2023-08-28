@@ -99,6 +99,32 @@ void Daisy_SSD1327::clear(uint8_t colour) {
     dirty_window_max_y = SSD1327_LCD_HEIGHT - 1;
 }
 
+// Set the pixel to the new colour ONLY if it's lighter
+void Daisy_SSD1327::lightenPixel(uint8_t x, uint8_t y, uint8_t colour) {
+    // TODO: Debug print for out of bounds
+    uint8_t *buf_target = &_display_buffer[x/2 + (y*SSD1327_LCD_HALF_WIDTH)];
+    
+    uint8_t original_left_pixel = *buf_target & 0xF0;
+    uint8_t original_right_pixel = *buf_target & 0x0F;
+
+    if (x % 2 == 0) { // even, left pixel
+        uint8_t new_left_pixel = (colour & 0x0F) << 4;
+        if (new_left_pixel < original_left_pixel) return;
+
+        *buf_target = new_left_pixel | original_right_pixel;
+    } else { // odd, right pixel
+        uint8_t new_right_pixel = colour & 0x0F;
+        if (new_right_pixel < original_right_pixel) return;
+
+        *buf_target = new_right_pixel | original_left_pixel;
+    }
+
+    dirty_window_min_x = std::min(dirty_window_min_x, x);
+    dirty_window_max_x = std::max(dirty_window_max_x, x);
+    dirty_window_min_y = std::min(dirty_window_min_y, y);
+    dirty_window_max_y = std::max(dirty_window_max_y, y);
+}
+
 void Daisy_SSD1327::setPixel(uint8_t x, uint8_t y, uint8_t colour) {
     // TODO: Debug print for out of bounds
     uint8_t *buf_target = &_display_buffer[x/2 + (y*SSD1327_LCD_HALF_WIDTH)];
