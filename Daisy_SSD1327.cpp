@@ -86,6 +86,7 @@ SpiHandle::Config Daisy_SSD1327::getSpiConfig(dsy_gpio_pin sclk, dsy_gpio_pin mo
     spi_conf.pin_config.mosi = mosi;
     spi_conf.pin_config.miso = miso;
     spi_conf.pin_config.nss = nss;
+    spi_conf.baud_prescaler = SpiHandle::Config::BaudPrescaler::PS_2;
 
     return spi_conf;
 }
